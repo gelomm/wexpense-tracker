@@ -7,6 +7,7 @@ import { Modal } from '../components/UI/Modal';
 import { Spinner } from '../components/UI/Spinner';
 import { motion } from 'framer-motion';
 import { frequencyLabel } from '../lib/utils';
+import { syncAutoReminder } from '../lib/reminderHelpers';
 
 export default function Recurring({ showToast }) {
   const { profile, user } = useAuth();
@@ -272,7 +273,10 @@ export default function Recurring({ showToast }) {
       showToast('Failed to save: ' + result.error.message, 'error');
       return;
     }
-
+    // After saving recurring
+    if (savedId) {
+      await syncRecurringAutoReminder(savedId, formData.startDate, user.id, !!editingId);
+    }
     showToast(editingId ? 'Updated!' : 'Added!', 'success');
     setModalOpen(false);
     loadRecurring();
@@ -321,6 +325,8 @@ export default function Recurring({ showToast }) {
         is_settled: false,
       }));
       await supabase.from('expense_splits').insert(splitRows);
+      // After expense and splits are created
+      await syncAutoReminder(expense.id, item.next_due_date, user.id);
     }
 
     showToast('Expense generated! ⚡', 'success');

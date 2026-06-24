@@ -8,6 +8,7 @@ import { Modal } from '../components/UI/Modal';
 import { Spinner } from '../components/UI/Spinner';
 import { motion } from 'framer-motion';
 import { daysLabel, hexToAlpha } from '../lib/utils';
+import { syncAutoReminder } from '../lib/reminderHelpers';
 
 export default function Expenses({ showToast }) {
   const { profile, user } = useAuth();
@@ -212,6 +213,11 @@ export default function Expenses({ showToast }) {
     };
 
     let expenseId = editingId;
+
+    // After saving expense (expenseId is set)
+    if (expenseId) {
+      await syncAutoReminder(expenseId, formData.dueDate, user.id);
+    }
 
     if (editingId) {
       await supabase.from('expenses').update(payload).eq('id', editingId);
