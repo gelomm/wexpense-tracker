@@ -7,6 +7,18 @@
 </head>
 <body>
   <div id="root"></div>
+    <!-- 👇 RESTORE PATH FROM 404 REDIRECT -->
+  <script>
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      const path = params.get('path');
+      if (path) {
+        // Remove the ?path= from the URL and set the correct path
+        const newUrl = '/wexpense-tracker' + path;
+        window.history.replaceState(null, '', newUrl);
+      }
+    })();
+  </script>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

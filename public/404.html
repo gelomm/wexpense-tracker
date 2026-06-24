@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>WeXpense</title>
+    <script>
+      // Get the original path from the query string
+      const path = new URLSearchParams(window.location.search).get('path');
+      if (path) {
+        // Redirect to index.html with the path as a query param
+        window.location.href = '/wexpense-tracker/?path=' + encodeURIComponent(path);
+      } else {
+        // Fallback to home
+        window.location.href = '/wexpense-tracker/';
+      }
+    </script>
+  </head>
+  <body>
+    <p>Redirecting...</p>
+  </body>
+</html>
