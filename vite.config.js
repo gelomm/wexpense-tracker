@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  server: {
-    port: 3000,
-  },
+  base: '/wexpense-tracker/', // <-- same as your repo name
+  server: { port: 3000 },
 });
