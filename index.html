@@ -9,21 +9,6 @@
 </head>
 <body>
   <div id="root"></div>
-
-  <!-- ── RESTORE PATH FROM 404 REDIRECT ── -->
-  <script>
-    (function() {
-      const params = new URLSearchParams(window.location.search);
-      const path = params.get('path');
-      if (path) {
-        // Remove ?path= and restore the actual path
-        const basePath = '/wexpense-tracker';
-        const newUrl = basePath + path;
-        window.history.replaceState(null, '', newUrl);
-      }
-    })();
-  </script>
-
   
 </body>
 </html>

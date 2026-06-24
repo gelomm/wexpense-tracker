@@ -1,22 +1,14 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>WeXpense</title>
-    <script>
-      (function() {
-        // Get the path that was requested
-        const path = window.location.pathname.replace('/wexpense-tracker', '');
-        if (path && path !== '/') {
-          // Redirect to index.html with the path as a query param
-          window.location.href = '/wexpense-tracker/?path=' + encodeURIComponent(path);
-        } else {
-          window.location.href = '/wexpense-tracker/';
-        }
-      })();
-    </script>
-  </head>
-  <body>
-    <p>Redirecting...</p>
-  </body>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WeXpense — Expense Tracker</title>
+  <script type="module" crossorigin src="/wexpense-tracker/assets/index-06f04be7.js"></script>
+  <link rel="stylesheet" href="/wexpense-tracker/assets/index-056b4fa1.css">
+</head>
+<body>
+  <div id="root"></div>
+  
+</body>
 </html>
