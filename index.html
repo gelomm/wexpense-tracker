@@ -4,23 +4,26 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WeXpense — Expense Tracker</title>
-  <script type="module" crossorigin src="/wexpense-tracker/assets/index-7e92adf8.js"></script>
-  <link rel="stylesheet" href="/wexpense-tracker/assets/index-04dc930a.css">
+  <script type="module" crossorigin src="/wexpense-tracker/assets/index-06f04be7.js"></script>
+  <link rel="stylesheet" href="/wexpense-tracker/assets/index-056b4fa1.css">
 </head>
 <body>
   <div id="root"></div>
-    <!-- 👇 RESTORE PATH FROM 404 REDIRECT -->
+
+  <!-- ── RESTORE PATH FROM 404 REDIRECT ── -->
   <script>
     (function() {
       const params = new URLSearchParams(window.location.search);
       const path = params.get('path');
       if (path) {
-        // Remove the ?path= from the URL and set the correct path
-        const newUrl = '/wexpense-tracker' + path;
+        // Remove ?path= and restore the actual path
+        const basePath = '/wexpense-tracker';
+        const newUrl = basePath + path;
         window.history.replaceState(null, '', newUrl);
       }
     })();
   </script>
+
   
 </body>
 </html>
