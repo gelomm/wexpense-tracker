@@ -4,15 +4,16 @@
     <meta charset="utf-8" />
     <title>WeXpense</title>
     <script>
-      // Get the original path from the query string
-      const path = new URLSearchParams(window.location.search).get('path');
-      if (path) {
-        // Redirect to index.html with the path as a query param
-        window.location.href = '/wexpense-tracker/?path=' + encodeURIComponent(path);
-      } else {
-        // Fallback to home
-        window.location.href = '/wexpense-tracker/';
-      }
+      (function() {
+        // Get the path that was requested
+        const path = window.location.pathname.replace('/wexpense-tracker', '');
+        if (path && path !== '/') {
+          // Redirect to index.html with the path as a query param
+          window.location.href = '/wexpense-tracker/?path=' + encodeURIComponent(path);
+        } else {
+          window.location.href = '/wexpense-tracker/';
+        }
+      })();
     </script>
   </head>
   <body>
