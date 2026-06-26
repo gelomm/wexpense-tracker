@@ -3,6 +3,6 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/',   // or '/' because we use HashRouter, no need for subpath
+  base: '/wexpense-tracker/',   // <-- must match your repository name
   server: { port: 3000 },
 });
