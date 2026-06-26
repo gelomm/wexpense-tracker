@@ -5,7 +5,7 @@ import { ToastContainer } from '../components/UI/Toast';
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
+  const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [householdName, setHouseholdName] = useState('');
@@ -15,26 +15,62 @@ export default function Auth() {
   const [passwordStrength, setPasswordStrength] = useState({ score: 0, label: '', color: '' });
   const { toasts, showToast } = useToast();
 
-  // ── Load existing households ──
-  // Uses an RPC (list_households) instead of a direct table select.
-  // households_select RLS only allows a user to see a household
-  // they already belong to, which is always empty pre-login — the
-  // RPC is a SECURITY DEFINER function that safely exposes just
-  // id + name to anyone. See fix_household_directory.sql.
+  // ── Invite state ────────────────────────────────────────────────────
+  const [inviteToken, setInviteToken]         = useState(null);
+  const [inviteHouseholdId, setInviteHouseholdId] = useState(null);
+  const [inviteInfo, setInviteInfo]           = useState(null);  // { householdName, inviterName, email }
+  const [inviteError, setInviteError]         = useState(null);
+  const [inviteLoading, setInviteLoading]     = useState(false);
+
+  // ── Check for invite token in URL ───────────────────────────────────
   useEffect(() => {
-    const loadHouseholds = async () => {
-      const { data, error } = await supabase.rpc('list_households');
-      if (error) {
-        console.error('Failed to load households:', error);
-        showToast('Could not load households list.', 'error');
+    const params = new URLSearchParams(window.location.search);
+    const token  = params.get('invite');
+    if (!token) return;
+
+    setInviteToken(token);
+    setIsLogin(false);          // jump straight to the register tab
+    setInviteLoading(true);
+
+    const validateInvite = async () => {
+      const { data: invite, error } = await supabase
+        .from('invitations')
+        .select('*, household:households(name), inviter:profiles(full_name)')
+        .eq('token', token)
+        .eq('status', 'pending')
+        .single();
+
+      setInviteLoading(false);
+
+      if (error || !invite || new Date(invite.expires_at) < new Date()) {
+        setInviteError('This invite link has expired or is invalid. Ask the household owner to send a new one.');
         return;
       }
-      setHouseholds(data || []);
+
+      setInviteInfo({
+        householdName: invite.household?.name ?? 'a household',
+        inviterName:   invite.inviter?.full_name ?? 'Someone',
+        email:         invite.invited_email,
+      });
+      setInviteHouseholdId(invite.household_id);
+      setEmail(invite.invited_email);
+      setFullName(invite.invited_email.split('@')[0]); // pre-fill name from email prefix
     };
-    loadHouseholds();
+
+    validateInvite();
   }, []);
 
-  // ── Password strength checker ──
+  // ── Load existing households (normal register flow) ──────────────────
+  useEffect(() => {
+    if (inviteToken) return; // not needed for invite flow
+    const loadHouseholds = async () => {
+      const { data, error } = await supabase.rpc('list_households');
+      if (!error) setHouseholds(data || []);
+    };
+    loadHouseholds();
+  }, [inviteToken]);
+
+  // ── Password strength ───────────────────────────────────────────────
   const checkPasswordStrength = (pw) => {
     let score = 0;
     if (pw.length >= 8) score++;
@@ -42,46 +78,98 @@ export default function Auth() {
     if (/[A-Z]/.test(pw)) score++;
     if (/[0-9]/.test(pw)) score++;
     if (/[^A-Za-z0-9]/.test(pw)) score++;
-
     const levels = [
-      { label: 'Very weak', color: '#EF4444' },
-      { label: 'Weak', color: '#F97316' },
-      { label: 'Fair', color: '#F59E0B' },
-      { label: 'Strong', color: '#10B981' },
-      { label: 'Very strong', color: '#059669' },
+      { label: 'Very weak',    color: '#EF4444' },
+      { label: 'Weak',         color: '#F97316' },
+      { label: 'Fair',         color: '#F59E0B' },
+      { label: 'Strong',       color: '#10B981' },
+      { label: 'Very strong',  color: '#059669' },
     ];
     const level = levels[Math.min(score, 4)];
     setPasswordStrength({ score, label: level.label, color: level.color });
-    return score >= 3; // at least "Strong"
+    return score >= 3;
   };
 
   const handlePasswordChange = (e) => {
-    const pw = e.target.value;
-    setPassword(pw);
-    checkPasswordStrength(pw);
+    setPassword(e.target.value);
+    checkPasswordStrength(e.target.value);
   };
 
-  // ── Submit ──
+  // ── Submit handler ──────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
+    // ── LOGIN ──────────────────────────────────────────────────────────
     if (isLogin) {
-      // ── LOGIN ──
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        showToast(error.message, 'error');
+      if (error) { showToast(error.message, 'error'); setLoading(false); }
+      return; // onAuthStateChange handles redirect
+    }
+
+    // ── INVITE FLOW ────────────────────────────────────────────────────
+    if (inviteToken && inviteHouseholdId) {
+      if (password.length < 8) {
+        showToast('Password must be at least 8 characters.', 'warning');
         setLoading(false);
         return;
       }
-      // No manual redirect/reload needed — useAuth's onAuthStateChange
-      // listener picks up the new session and App.jsx swaps away from
-      // <Auth/> automatically. A reload here just causes a blank flash.
+
+      // The Supabase invite email creates the auth account automatically.
+      // The invite link embeds access_token in the URL hash, which the
+      // Supabase JS client picks up via detectSessionInUrl: true.
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        // No session yet — the invite link may have landed on a different
+        // page or been cleared. Try exchanging via URL (hash tokens).
+        const { error: exchError } = await supabase.auth.exchangeCodeForSession(window.location.href);
+        if (exchError) {
+          showToast('Your invite session has expired. Ask the owner to resend the invite.', 'error');
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Re-fetch session after possible exchange
+      const { data: { session: liveSession } } = await supabase.auth.getSession();
+      if (!liveSession) {
+        showToast('Could not establish session. Please try the invite link again.', 'error');
+        setLoading(false);
+        return;
+      }
+
+      // Set the password on the already-created account
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) {
+        showToast(updateError.message, 'error');
+        setLoading(false);
+        return;
+      }
+
+      // Also persist chosen full name
+      await supabase.auth.updateUser({ data: { full_name: fullName } });
+
+      // Mark invite as accepted
+      await supabase.from('invitations')
+        .update({ status: 'accepted' })
+        .eq('token', inviteToken);
+
+      // Link profile to household
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ household_id: inviteHouseholdId, role: 'member', full_name: fullName })
+        .eq('id', liveSession.user.id);
+
+      if (profileError) console.error('Profile update error:', profileError);
+
+      showToast('Welcome! Your account is ready 🎉', 'success');
+      // onAuthStateChange will navigate away automatically
+      setLoading(false);
       return;
     }
 
-    // ── REGISTER ──
-    // Validate password strength
+    // ── NORMAL REGISTER FLOW ───────────────────────────────────────────
     if (password.length < 8) {
       showToast('Password must be at least 8 characters.', 'warning');
       setLoading(false);
@@ -92,8 +180,6 @@ export default function Auth() {
       setLoading(false);
       return;
     }
-
-    // Validate household choice (don't create/join anything yet — see below)
     if (selectedHouseholdId === 'new') {
       if (!householdName.trim()) {
         showToast('Please enter a household name.', 'warning');
@@ -106,14 +192,10 @@ export default function Auth() {
       return;
     }
 
-    // ── Sign up ──
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: { full_name: fullName },
-        // No redirect – we handle it ourselves
-      },
+      options: { data: { full_name: fullName } },
     });
 
     if (signUpError) {
@@ -122,10 +204,6 @@ export default function Auth() {
       return;
     }
 
-    // If user is not immediately confirmed (email confirmation required),
-    // there is no active session yet, so we can't create/join a household
-    // (households_insert RLS requires created_by = auth.uid()). They'll
-    // need to verify their email, log in, then set up their household.
     if (!signUpData.user?.confirmed_at) {
       showToast('Account created! Please verify your email then log in to finish setting up your household.', 'success');
       setLoading(false);
@@ -133,9 +211,6 @@ export default function Auth() {
       return;
     }
 
-    // Confirmed immediately (email confirmation disabled in this Supabase
-    // project) — signUp() already established a session, so auth.uid()
-    // now matches this user and RLS checks against created_by will pass.
     const userId = signUpData.user.id;
     let householdId = selectedHouseholdId;
 
@@ -151,48 +226,30 @@ export default function Auth() {
         return;
       }
       householdId = newHousehold.id;
-
-      // Seed default tag
-      await supabase.from('tags').insert({
-        name: 'Shared',
-        color: '#4F46E5',
-        household_id: householdId,
-        created_by: userId,
-      });
+      await supabase.from('tags').insert({ name: 'Shared', color: '#4F46E5', household_id: householdId, created_by: userId });
     }
 
-    // Update profile with household_id and role
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({
-        household_id: householdId,
-        role: selectedHouseholdId === 'new' ? 'owner' : 'member',
-        full_name: fullName,
-      })
-      .eq('id', userId);
-
-    if (profileError) {
-      console.error('Profile update error:', profileError);
-      showToast('Account created but profile setup failed. Please contact support.', 'warning');
-    }
+    await supabase.from('profiles').update({
+      household_id: householdId,
+      role: selectedHouseholdId === 'new' ? 'owner' : 'member',
+      full_name: fullName,
+    }).eq('id', userId);
 
     showToast('Account created! Logging you in…', 'success');
-    // Sign in automatically
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError) {
       showToast('Please log in manually with your credentials.', 'info');
       setIsLogin(true);
-      setLoading(false);
-      return;
     }
-    // No manual redirect/reload — onAuthStateChange in useAuth handles
-    // the transition to the dashboard reactively.
     setLoading(false);
   };
 
+  // ── UI ──────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex items-center justify-center bg-neutral-900 p-4">
       <div className="w-full max-w-md">
+
+        {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-3">
             <div className="w-12 h-12 rounded-xl bg-olive-600 flex items-center justify-center text-white font-bold text-2xl shadow-lg shadow-olive-600/20">W</div>
@@ -202,63 +259,115 @@ export default function Auth() {
         </div>
 
         <div className="glass rounded-2xl border border-white/5 p-6 shadow-xl">
-          <div className="flex gap-1 bg-white/5 rounded-lg p-1 mb-6">
-            <button
-              onClick={() => setIsLogin(true)}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
-                isLogin ? 'bg-olive-600 text-white shadow-lg' : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              onClick={() => setIsLogin(false)}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
-                !isLogin ? 'bg-olive-600 text-white shadow-lg' : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              Create Account
-            </button>
-          </div>
+
+          {/* ── Invite banner ── */}
+          {inviteLoading && (
+            <div className="mb-5 flex items-center gap-3 p-4 rounded-xl bg-olive-600/10 border border-olive-600/20">
+              <div className="w-5 h-5 border-2 border-olive-400/30 border-t-olive-400 rounded-full animate-spin flex-shrink-0" />
+              <span className="text-sm text-neutral-300">Validating invite link…</span>
+            </div>
+          )}
+
+          {inviteError && (
+            <div className="mb-5 p-4 rounded-xl bg-rust-600/10 border border-rust-600/30">
+              <div className="text-sm font-semibold text-rust-400 mb-1">❌ Invite Invalid</div>
+              <p className="text-sm text-neutral-400">{inviteError}</p>
+            </div>
+          )}
+
+          {inviteInfo && !inviteError && (
+            <div className="mb-5 p-4 rounded-xl bg-olive-600/10 border border-olive-600/20">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🏠</span>
+                <div>
+                  <p className="text-sm font-semibold text-neutral-200">
+                    {inviteInfo.inviterName} invited you to join <strong className="text-olive-400">{inviteInfo.householdName}</strong>
+                  </p>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Enter your name and a password to complete setup. Your email is already confirmed.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab bar (hidden when on invite flow) ── */}
+          {!inviteToken && (
+            <div className="flex gap-1 bg-white/5 rounded-lg p-1 mb-6">
+              <button
+                onClick={() => setIsLogin(true)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                  isLogin ? 'bg-olive-600 text-white shadow-lg' : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => setIsLogin(false)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                  !isLogin ? 'bg-olive-600 text-white shadow-lg' : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                Create Account
+              </button>
+            </div>
+          )}
+
+          {/* ── Invite mode header ── */}
+          {inviteToken && !inviteError && (
+            <div className="mb-5">
+              <h2 className="text-lg font-semibold">Join {inviteInfo?.householdName ?? 'Household'}</h2>
+              <p className="text-sm text-neutral-400">Create your account to get started.</p>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* ── Full name (register only) ── */}
-            {!isLogin && (
+
+            {/* Full name (register + invite) */}
+            {(!isLogin || inviteToken) && (
               <div>
                 <label className="block text-sm font-medium text-neutral-300 mb-1">Full Name</label>
                 <input
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Juan dela Cruz"
                   className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
                   required
                 />
               </div>
             )}
 
-            {/* ── Email ── */}
+            {/* Email */}
             <div>
               <label className="block text-sm font-medium text-neutral-300 mb-1">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
+                className={`w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white ${
+                  inviteToken ? 'opacity-60 cursor-not-allowed' : ''
+                }`}
+                readOnly={!!inviteToken}
                 required
               />
+              {inviteToken && (
+                <p className="text-xs text-neutral-500 mt-1">Email is pre-filled from your invite.</p>
+              )}
             </div>
 
-            {/* ── Password ── */}
+            {/* Password */}
             <div>
               <label className="block text-sm font-medium text-neutral-300 mb-1">Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={handlePasswordChange}
+                placeholder={isLogin && !inviteToken ? '••••••••' : 'Min. 8 characters'}
                 className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
                 required
               />
-              {!isLogin && (
+              {(!isLogin || inviteToken) && (
                 <div className="mt-2">
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-neutral-400">Strength:</span>
@@ -267,10 +376,7 @@ export default function Auth() {
                   <div className="w-full h-1 bg-white/10 rounded-full mt-1 overflow-hidden">
                     <div
                       className="h-full transition-all duration-300"
-                      style={{
-                        width: `${(passwordStrength.score / 4) * 100}%`,
-                        backgroundColor: passwordStrength.color,
-                      }}
+                      style={{ width: `${(passwordStrength.score / 4) * 100}%`, backgroundColor: passwordStrength.color }}
                     />
                   </div>
                   <ul className="text-xs text-neutral-400 mt-2 space-y-0.5">
@@ -288,8 +394,8 @@ export default function Auth() {
               )}
             </div>
 
-            {/* ── Household (register only) ── */}
-            {!isLogin && (
+            {/* Household selector (normal register only, not invite) */}
+            {!isLogin && !inviteToken && (
               <div>
                 <label className="block text-sm font-medium text-neutral-300 mb-1">Household</label>
                 <select
@@ -317,15 +423,31 @@ export default function Auth() {
               </div>
             )}
 
+            {/* Invite: joining household info pill */}
+            {inviteToken && inviteInfo && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-olive-600/10 border border-olive-600/20 text-sm text-olive-300">
+                <span>🏠</span>
+                <span>Joining <strong>{inviteInfo.householdName}</strong></span>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-2.5 px-4 bg-olive-600 hover:bg-olive-700 text-white font-medium rounded-lg transition-all shadow-lg shadow-olive-600/20 hover:shadow-olive-600/40 disabled:opacity-50"
+              disabled={loading || (!!inviteToken && !!inviteError)}
+              className="w-full py-2.5 px-4 bg-olive-600 hover:bg-olive-700 text-white font-medium rounded-lg transition-all shadow-lg shadow-olive-600/20 hover:shadow-olive-600/40 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? <span className="inline-block w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : (isLogin ? 'Sign In' : 'Create Account')}
+              {loading
+                ? <span className="inline-block w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : inviteToken
+                  ? `Join ${inviteInfo?.householdName ?? 'Household'}`
+                  : isLogin
+                    ? 'Sign In'
+                    : 'Create Account'
+              }
             </button>
           </form>
         </div>
+
         <ToastContainer toasts={toasts} />
       </div>
     </div>
