@@ -16,12 +16,19 @@ export default function Auth() {
   const { toasts, showToast } = useToast();
 
   // ── Load existing households ──
+  // Uses an RPC (list_households) instead of a direct table select.
+  // households_select RLS only allows a user to see a household
+  // they already belong to, which is always empty pre-login — the
+  // RPC is a SECURITY DEFINER function that safely exposes just
+  // id + name to anyone. See fix_household_directory.sql.
   useEffect(() => {
     const loadHouseholds = async () => {
-      const { data } = await supabase
-        .from('households')
-        .select('id, name')
-        .order('name');
+      const { data, error } = await supabase.rpc('list_households');
+      if (error) {
+        console.error('Failed to load households:', error);
+        showToast('Could not load households list.', 'error');
+        return;
+      }
       setHouseholds(data || []);
     };
     loadHouseholds();
@@ -67,9 +74,9 @@ export default function Auth() {
         setLoading(false);
         return;
       }
-      // Redirect to dashboard
-      window.location.hash = '#/';
-      window.location.reload();
+      // No manual redirect/reload needed — useAuth's onAuthStateChange
+      // listener picks up the new session and App.jsx swaps away from
+      // <Auth/> automatically. A reload here just causes a blank flash.
       return;
     }
 
@@ -86,27 +93,14 @@ export default function Auth() {
       return;
     }
 
-    // Determine household
-    let householdId = selectedHouseholdId;
+    // Validate household choice (don't create/join anything yet — see below)
     if (selectedHouseholdId === 'new') {
-      // Create new household
       if (!householdName.trim()) {
         showToast('Please enter a household name.', 'warning');
         setLoading(false);
         return;
       }
-      const { data: newHousehold, error: hhError } = await supabase
-        .from('households')
-        .insert({ name: householdName.trim(), created_by: null }) // will be updated later
-        .select()
-        .single();
-      if (hhError) {
-        showToast('Failed to create household: ' + hhError.message, 'error');
-        setLoading(false);
-        return;
-      }
-      householdId = newHousehold.id;
-    } else if (!householdId) {
+    } else if (!selectedHouseholdId) {
       showToast('Please select or create a household.', 'warning');
       setLoading(false);
       return;
@@ -128,17 +122,46 @@ export default function Auth() {
       return;
     }
 
-    // If user is not immediately confirmed (email confirmation required)
+    // If user is not immediately confirmed (email confirmation required),
+    // there is no active session yet, so we can't create/join a household
+    // (households_insert RLS requires created_by = auth.uid()). They'll
+    // need to verify their email, log in, then set up their household.
     if (!signUpData.user?.confirmed_at) {
-      showToast('Account created! Please verify your email then log in.', 'success');
+      showToast('Account created! Please verify your email then log in to finish setting up your household.', 'success');
       setLoading(false);
       setIsLogin(true);
       return;
     }
 
-    // User is already confirmed (if email confirmation is disabled in Supabase)
-    // Update profile with household_id and role
+    // Confirmed immediately (email confirmation disabled in this Supabase
+    // project) — signUp() already established a session, so auth.uid()
+    // now matches this user and RLS checks against created_by will pass.
     const userId = signUpData.user.id;
+    let householdId = selectedHouseholdId;
+
+    if (selectedHouseholdId === 'new') {
+      const { data: newHousehold, error: hhError } = await supabase
+        .from('households')
+        .insert({ name: householdName.trim(), created_by: userId })
+        .select()
+        .single();
+      if (hhError) {
+        showToast('Account created but household setup failed: ' + hhError.message, 'error');
+        setLoading(false);
+        return;
+      }
+      householdId = newHousehold.id;
+
+      // Seed default tag
+      await supabase.from('tags').insert({
+        name: 'Shared',
+        color: '#4F46E5',
+        household_id: householdId,
+        created_by: userId,
+      });
+    }
+
+    // Update profile with household_id and role
     const { error: profileError } = await supabase
       .from('profiles')
       .update({
@@ -153,22 +176,6 @@ export default function Auth() {
       showToast('Account created but profile setup failed. Please contact support.', 'warning');
     }
 
-    // If this is a new household, update the created_by field
-    if (selectedHouseholdId === 'new') {
-      await supabase
-        .from('households')
-        .update({ created_by: userId })
-        .eq('id', householdId);
-
-      // Seed default tag
-      await supabase.from('tags').insert({
-        name: 'Shared',
-        color: '#4F46E5',
-        household_id: householdId,
-        created_by: userId,
-      });
-    }
-
     showToast('Account created! Logging you in…', 'success');
     // Sign in automatically
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
@@ -178,8 +185,9 @@ export default function Auth() {
       setLoading(false);
       return;
     }
-    window.location.hash = '#/';
-    window.location.reload();
+    // No manual redirect/reload — onAuthStateChange in useAuth handles
+    // the transition to the dashboard reactively.
+    setLoading(false);
   };
 
   return (

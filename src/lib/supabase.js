@@ -32,5 +32,7 @@ export const daysUntil = (dateStr) => {
 
 export const signOut = async () => {
   await supabase.auth.signOut();
-  window.location.href = '/';
+  // Use Vite's BASE_URL instead of a hardcoded '/' — on GitHub Pages
+  // the app lives at /wexpense-tracker/, so '/' 404s.
+  window.location.href = import.meta.env.BASE_URL;
 };

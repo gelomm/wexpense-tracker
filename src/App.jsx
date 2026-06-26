@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';  // ← change import
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useAuth } from './hooks/useAuth';
 import { useToast } from './hooks/useToast';
@@ -13,6 +13,47 @@ import Splits from './pages/Splits';
 import Reminders from './pages/Reminders';
 import Settings from './pages/Settings';
 import Auth from './pages/Auth';
+
+const pageTitles = {
+  '/': 'Dashboard',
+  '/expenses': 'Expenses',
+  '/recurring': 'Recurring',
+  '/splits': 'Splits & Settlements',
+  '/reminders': 'Reminders',
+  '/settings': 'Settings',
+};
+
+// Lives inside <HashRouter>, so useLocation() reflects the hash route
+// (e.g. "#/expenses" → pathname "/expenses"). window.location.pathname
+// would always be "/wexpense-tracker/" regardless of route and never
+// matched anything in pageTitles.
+function AppLayout({ showToast, sidebarOpen, setSidebarOpen }) {
+  const location = useLocation();
+
+  return (
+    <div className="min-h-screen bg-neutral-900 text-neutral-100 flex">
+      <Sidebar mobileOpen={sidebarOpen} setMobileOpen={setSidebarOpen} />
+      <div className="flex-1 lg:ml-64 flex flex-col pb-20 lg:pb-0">
+        <Topbar
+          pageTitle={pageTitles[location.pathname] || 'WeXpense'}
+          onMenuClick={() => setSidebarOpen(true)}
+        />
+        <main className="flex-1 p-6">
+          <Routes>
+            <Route path="/" element={<Dashboard showToast={showToast} />} />
+            <Route path="/expenses" element={<Expenses showToast={showToast} />} />
+            <Route path="/recurring" element={<Recurring showToast={showToast} />} />
+            <Route path="/splits" element={<Splits showToast={showToast} />} />
+            <Route path="/reminders" element={<Reminders showToast={showToast} />} />
+            <Route path="/settings" element={<Settings showToast={showToast} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+      </div>
+      <MobileNav />
+    </div>
+  );
+}
 
 function App() {
   const { user, loading } = useAuth();
@@ -44,48 +85,14 @@ function App() {
     return <Auth />;
   }
 
-  const pageTitles = {
-    '/': 'Dashboard',
-    '/expenses': 'Expenses',
-    '/recurring': 'Recurring',
-    '/splits': 'Splits & Settlements',
-    '/reminders': 'Reminders',
-    '/settings': 'Settings',
-  };
-
   return (
-    <HashRouter>   {/* ← Changed from BrowserRouter */}
-      <div className="min-h-screen bg-neutral-900 text-neutral-100 flex">
-        <Sidebar mobileOpen={sidebarOpen} setMobileOpen={setSidebarOpen} />
-        <div className="flex-1 lg:ml-64 flex flex-col pb-20 lg:pb-0">
-          <Routes>
-            <Route
-              path="*"
-              element={
-                <>
-                  <Topbar
-                    pageTitle={pageTitles[window.location.pathname] || 'WeXpense'}
-                    onMenuClick={() => setSidebarOpen(true)}
-                  />
-                  <main className="flex-1 p-6">
-                    <Routes>
-                      <Route path="/" element={<Dashboard showToast={showToast} />} />
-                      <Route path="/expenses" element={<Expenses showToast={showToast} />} />
-                      <Route path="/recurring" element={<Recurring showToast={showToast} />} />
-                      <Route path="/splits" element={<Splits showToast={showToast} />} />
-                      <Route path="/reminders" element={<Reminders showToast={showToast} />} />
-                      <Route path="/settings" element={<Settings showToast={showToast} />} />
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
-                  </main>
-                </>
-              }
-            />
-          </Routes>
-        </div>
-        <MobileNav />
-        <ToastContainer toasts={toasts} />
-      </div>
+    <HashRouter>
+      <AppLayout
+        showToast={showToast}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+      />
+      <ToastContainer toasts={toasts} />
     </HashRouter>
   );
 }
