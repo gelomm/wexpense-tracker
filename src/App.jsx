@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';  // ← change import
 import { useState, useEffect } from 'react';
 import { useAuth } from './hooks/useAuth';
 import { useToast } from './hooks/useToast';
@@ -54,7 +54,7 @@ function App() {
   };
 
   return (
-    <BrowserRouter>
+    <HashRouter>   {/* ← Changed from BrowserRouter */}
       <div className="min-h-screen bg-neutral-900 text-neutral-100 flex">
         <Sidebar mobileOpen={sidebarOpen} setMobileOpen={setSidebarOpen} />
         <div className="flex-1 lg:ml-64 flex flex-col pb-20 lg:pb-0">
@@ -65,7 +65,7 @@ function App() {
                 <>
                   <Topbar
                     pageTitle={pageTitles[window.location.pathname] || 'WeXpense'}
-                    onMenuClick={() => setMobileOpen(true)}
+                    onMenuClick={() => setSidebarOpen(true)}
                   />
                   <main className="flex-1 p-6">
                     <Routes>
@@ -86,7 +86,7 @@ function App() {
         <MobileNav />
         <ToastContainer toasts={toasts} />
       </div>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 
