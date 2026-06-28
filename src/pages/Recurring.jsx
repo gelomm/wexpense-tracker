@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase, formatPHP, formatDate } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from '../components/UI/Button';
@@ -7,7 +7,7 @@ import { Modal } from '../components/UI/Modal';
 import { Spinner } from '../components/UI/Spinner';
 import { motion } from 'framer-motion';
 import { frequencyLabel } from '../lib/utils';
-import { syncAutoReminder } from '../lib/reminderHelpers';
+import { syncAutoReminder, syncRecurringAutoReminder } from '../lib/reminderHelpers';
 
 export default function Recurring({ showToast }) {
   const { profile, user } = useAuth();
@@ -35,6 +35,10 @@ export default function Recurring({ showToast }) {
   const [splitType, setSplitType] = useState('equal');
   const [splitConfig, setSplitConfig] = useState([]);
 
+  // ── Guard: track whether the split was user-customized ──
+  // When true, auto-recalculate is suppressed so edits aren't overwritten.
+  const userCustomizedSplit = useRef(false);
+
   // ── Load data ──
   useEffect(() => {
     if (profile?.household_id) {
@@ -45,8 +49,12 @@ export default function Recurring({ showToast }) {
   }, [profile]);
 
   // ── Recalculate splits when amount, payer, or split type changes ──
+  // ONLY auto-recalculate when:
+  //   • splitEnabled is true
+  //   • members are loaded
+  //   • the user has NOT already set custom split values (userCustomizedSplit.current is false)
   useEffect(() => {
-    if (splitEnabled && members.length > 0) {
+    if (splitEnabled && members.length > 0 && !userCustomizedSplit.current) {
       const amount = parseFloat(formData.amount) || 0;
       const payerId = formData.paidBy || user?.id;
       recalculateSplits(amount, payerId);
@@ -114,7 +122,9 @@ export default function Recurring({ showToast }) {
     setSplitConfig(newConfig);
   };
 
+  // Called when the user manually edits a split input — marks config as customized
   const updateSplitAmount = (profileId, value) => {
+    userCustomizedSplit.current = true;
     setSplitConfig(prev =>
       prev.map(s => {
         if (s.profile_id !== profileId) return s;
@@ -163,6 +173,8 @@ export default function Recurring({ showToast }) {
     setSplitEnabled(false);
     setSplitType('equal');
     setSplitConfig([]);
+    // Reset customization guard for new entries
+    userCustomizedSplit.current = false;
     setModalOpen(true);
   };
 
@@ -189,12 +201,36 @@ export default function Recurring({ showToast }) {
         amount: s.amount || 0,
         percentage: s.percentage || null,
       })));
+      // Mark as customized so useEffect won't overwrite the loaded config
+      userCustomizedSplit.current = true;
     } else {
       setSplitEnabled(false);
       setSplitType('equal');
       setSplitConfig([]);
+      userCustomizedSplit.current = false;
     }
     setModalOpen(true);
+  };
+
+  // When the user manually switches the split type tab, reset the customization
+  // guard so recalculate fires fresh for the new type
+  const handleSplitTypeChange = (type) => {
+    userCustomizedSplit.current = false;
+    setSplitType(type);
+  };
+
+  // When the user enables the split toggle fresh (not from edit), also reset guard
+  const handleSplitToggle = (checked) => {
+    setSplitEnabled(checked);
+    if (checked) {
+      userCustomizedSplit.current = false;
+      const amount = parseFloat(formData.amount) || 0;
+      const payerId = formData.paidBy || user?.id;
+      recalculateSplits(amount, payerId);
+    } else {
+      setSplitConfig([]);
+      userCustomizedSplit.current = false;
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -207,9 +243,6 @@ export default function Recurring({ showToast }) {
 
     let finalSplitConfig = [];
     if (splitEnabled && splitConfig.length > 0) {
-      const payerId = formData.paidBy || user?.id;
-      const others = members.filter(m => m.id !== payerId);
-
       finalSplitConfig = splitConfig
         .filter(s => {
           const val = splitType === 'percentage' ? (s.percentage || 0) : (s.amount || 0);
@@ -256,29 +289,51 @@ export default function Recurring({ showToast }) {
       category_id: formData.category || null,
       paid_by: formData.paidBy || user?.id,
       notes: formData.notes || null,
-      next_due_date: formData.startDate,
+      next_due_date: editingId
+        ? undefined  // don't overwrite next_due_date on edits (cron manages it)
+        : formData.startDate,
       is_active: true,
       created_by: user?.id,
       split_config: finalSplitConfig,
     };
 
-    let result;
+    // Remove next_due_date key from update payload if editing
+    if (editingId) delete payload.next_due_date;
+
+    let savedId = editingId;
+
     if (editingId) {
-      result = await supabase.from('recurring_expenses').update(payload).eq('id', editingId);
+      const { error } = await supabase
+        .from('recurring_expenses')
+        .update(payload)
+        .eq('id', editingId);
+      if (error) {
+        showToast('Failed to update: ' + error.message, 'error');
+        return;
+      }
     } else {
-      result = await supabase.from('recurring_expenses').insert(payload);
+      const { data: inserted, error } = await supabase
+        .from('recurring_expenses')
+        .insert(payload)
+        .select('id')
+        .single();
+      if (error) {
+        showToast('Failed to save: ' + error.message, 'error');
+        return;
+      }
+      savedId = inserted.id;
     }
 
-    if (result.error) {
-      showToast('Failed to save: ' + result.error.message, 'error');
-      return;
-    }
-    // After saving recurring
+    // Sync the auto-reminder for this recurring template
+    // FIX: previously `savedId` was undefined on the edit path, so the reminder
+    //      was never updated. Now savedId is always set correctly before this call.
     if (savedId) {
       await syncRecurringAutoReminder(savedId, formData.startDate, user.id, !!editingId);
     }
+
     showToast(editingId ? 'Updated!' : 'Added!', 'success');
     setModalOpen(false);
+    userCustomizedSplit.current = false;
     loadRecurring();
   };
 
@@ -314,9 +369,9 @@ export default function Recurring({ showToast }) {
       return;
     }
 
-    const splitConfig = item.split_config || [];
-    if (splitConfig.length > 0) {
-      const splitRows = splitConfig.map(sc => ({
+    const splitCfg = item.split_config || [];
+    if (splitCfg.length > 0) {
+      const splitRows = splitCfg.map(sc => ({
         expense_id: expense.id,
         profile_id: sc.profile_id,
         split_type: sc.split_type || 'equal',
@@ -324,10 +379,14 @@ export default function Recurring({ showToast }) {
         percentage: sc.percentage || null,
         is_settled: false,
       }));
-      await supabase.from('expense_splits').insert(splitRows);
-      // After expense and splits are created
-      await syncAutoReminder(expense.id, item.next_due_date, user.id);
+      const { error: splitError } = await supabase.from('expense_splits').insert(splitRows);
+      if (splitError) {
+        showToast('Expense created but split records failed.', 'warning');
+      }
     }
+
+    // Always sync auto-reminder for the generated expense instance
+    await syncAutoReminder(expense.id, item.next_due_date, user.id);
 
     showToast('Expense generated! ⚡', 'success');
     loadRecurring();
@@ -504,16 +563,7 @@ export default function Recurring({ showToast }) {
                   type="checkbox"
                   className="sr-only peer"
                   checked={splitEnabled}
-                  onChange={(e) => {
-                    setSplitEnabled(e.target.checked);
-                    if (e.target.checked) {
-                      const amount = parseFloat(formData.amount) || 0;
-                      const payerId = formData.paidBy || user?.id;
-                      recalculateSplits(amount, payerId);
-                    } else {
-                      setSplitConfig([]);
-                    }
-                  }}
+                  onChange={(e) => handleSplitToggle(e.target.checked)}
                 />
                 <div className="w-11 h-6 bg-white/10 peer-focus:ring-2 peer-focus:ring-olive-500/50 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-olive-600"></div>
               </label>
@@ -527,7 +577,7 @@ export default function Recurring({ showToast }) {
                     <button
                       key={type}
                       type="button"
-                      onClick={() => setSplitType(type)}
+                      onClick={() => handleSplitTypeChange(type)}
                       className={`flex-1 py-1.5 px-3 rounded-lg text-sm font-medium transition-all ${
                         splitType === type
                           ? 'bg-olive-600 text-white shadow-lg'
@@ -547,7 +597,7 @@ export default function Recurring({ showToast }) {
                     {splitConfig.map((s) => {
                       const member = members.find(m => m.id === s.profile_id);
                       if (!member) return null;
-                      const val = splitType === 'percentage' ? (s.percentage || 0) : (s.amount || 0);
+                      const val = splitType === 'percentage' ? (s.percentage ?? 0) : (s.amount ?? 0);
 
                       return (
                         <div key={s.profile_id} className="flex items-center gap-3">
