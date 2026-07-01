@@ -271,7 +271,7 @@ export default function Expenses({ showToast }) {
       <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
         <div className="flex items-center gap-4">
           <h2 className="text-2xl font-bold">Expenses</h2>
-          <select value={month} onChange={handleChange} className="form-select !w-auto">
+          <select value={month} onChange={handleChange} className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
             {(() => {
               const now = new Date();
               const opts = [];
@@ -280,7 +280,7 @@ export default function Expenses({ showToast }) {
                 const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
                 opts.push({ val, label: d.toLocaleDateString('en-PH', { month: 'long', year: 'numeric' }) });
               }
-              return opts.map(m => <option key={m.val} value={m.val}>{m.label}</option>);
+              return opts.map(m => <option className="text-black" key={m.val} value={m.val}>{m.label}</option>);
             })()}
           </select>
         </div>
@@ -353,7 +353,7 @@ export default function Expenses({ showToast }) {
                 type="text"
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="form-input"
+                className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
                 placeholder="e.g. Monthly Rent"
                 required
               />
@@ -366,7 +366,7 @@ export default function Expenses({ showToast }) {
                 type="number" step="0.01" min="0"
                 value={formData.amount}
                 onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                className="form-input"
+                className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
                 placeholder="0.00"
                 required
               />
@@ -378,11 +378,11 @@ export default function Expenses({ showToast }) {
               <select
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="form-select"
+                className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
               >
-                <option value="">— None —</option>
+                <option className="text-black" value="">— None —</option>
                 {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                  <option className="text-black" key={c.id} value={c.id}>{c.icon} {c.name}</option>
                 ))}
               </select>
             </div>
@@ -394,7 +394,7 @@ export default function Expenses({ showToast }) {
                 type="date"
                 value={formData.date}
                 onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                className="form-input"
+                className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
                 required
               />
             </div>
@@ -406,7 +406,7 @@ export default function Expenses({ showToast }) {
                 type="date"
                 value={formData.dueDate}
                 onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                className="form-input"
+                className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
               />
             </div>
 
@@ -416,11 +416,11 @@ export default function Expenses({ showToast }) {
               <select
                 value={formData.status}
                 onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                className="form-select"
+                className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
               >
-                <option value="unpaid">Unpaid</option>
-                <option value="paid">Paid</option>
-                <option value="overdue">Overdue</option>
+                <option className='text-black' value="unpaid">Unpaid</option>
+                <option className='text-black' value="paid">Paid</option>
+                <option className='text-black' value="overdue">Overdue</option>
               </select>
             </div>
 
@@ -431,7 +431,7 @@ export default function Expenses({ showToast }) {
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 rows="2"
-                className="form-input resize-none"
+                className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white"
                 placeholder="Optional notes…"
               />
             </div>
@@ -500,7 +500,7 @@ export default function Expenses({ showToast }) {
                               value={val}
                               onChange={(e) => updateSplitAmount(s.profile_id, e.target.value)}
                               disabled={splitType === 'equal'}
-                              className={`form-input text-right pr-6 py-1.5 ${splitType === 'equal' ? 'opacity-60 cursor-not-allowed' : ''}`}
+                              className='w-20 px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-olive-500/50 text-white'
                             />
                             <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-neutral-400 pointer-events-none">
                               {splitType === 'percentage' ? '%' : '₱'}

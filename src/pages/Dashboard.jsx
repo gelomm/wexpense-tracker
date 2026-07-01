@@ -218,7 +218,7 @@ export default function Dashboard({ showToast }) {
         <div className="flex items-center gap-4">
           <select value={month} onChange={handleChange} className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
             {monthOptions.map((m) => (
-              <option key={m.val} value={m.val}>{m.label}</option>
+              <option className="text-black" key={m.val} value={m.val}>{m.label}</option>
             ))}
           </select>
           <Button onClick={openQuickAdd}>＋ Quick Add</Button>
@@ -386,7 +386,7 @@ export default function Dashboard({ showToast }) {
             >
               <option value="">None</option>
               {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                <option className='text-black' key={c.id} value={c.id}>{c.icon} {c.name}</option>
               ))}
             </select>
           </div>

@@ -674,7 +674,7 @@ export default function Splits({ showToast }) {
                 const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
                 opts.push({ val, label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) });
               }
-              return opts.map(m => <option key={m.val} value={m.val}>{m.label}</option>);
+              return opts.map(m => <option className="text-black" key={m.val} value={m.val}>{m.label}</option>);
             })()}
           </select>
         </div>
