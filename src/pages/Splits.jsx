@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase, formatPHP, formatDate, monthBounds } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
-import { useMonthFilter } from '../hooks/useMonthFilter';
 import { Card } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
 import { Spinner } from '../components/UI/Spinner';
@@ -18,9 +17,19 @@ const freqToMonthly = {
   annually: 1 / 12,
 };
 
+// ── Helper: current month as 'YYYY-MM' ──────────────────────
+const currentMonthStr = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+
 export default function Splits({ showToast }) {
   const { user, profile } = useAuth();
-  const { month, handleChange } = useMonthFilter();
+
+  // ── Range filter: two month inputs instead of one ──────────
+  const [startMonth, setStartMonth] = useState(currentMonthStr());
+  const [endMonth, setEndMonth] = useState(currentMonthStr());
+
   const [loading, setLoading] = useState(true);
   const [allMembers, setAllMembers] = useState([]);
   const [allSplits, setAllSplits] = useState([]);
@@ -29,16 +38,33 @@ export default function Splits({ showToast }) {
   const [allOneTime, setAllOneTime] = useState([]);
   const [selectedMemberId, setSelectedMemberId] = useState(null);
 
+  // Keep the range sane: if start is moved past end, or end before start, snap the other one to match.
+  const handleStartMonthChange = (e) => {
+    const val = e.target.value;
+    if (!val) return;
+    setStartMonth(val);
+    if (val > endMonth) setEndMonth(val);
+  };
+
+  const handleEndMonthChange = (e) => {
+    const val = e.target.value;
+    if (!val) return;
+    setEndMonth(val);
+    if (val < startMonth) setStartMonth(val);
+  };
+
   useEffect(() => {
     if (profile?.household_id) {
       loadAll();
     }
-  }, [month, profile]);
+  }, [startMonth, endMonth, profile]);
 
   const loadAll = async () => {
     setLoading(true);
     const hid = profile.household_id;
-    const { start, end } = monthBounds(month);
+    // Combine bounds of the start month and end month into one range.
+    const { start } = monthBounds(startMonth);
+    const { end } = monthBounds(endMonth);
 
     try {
       // Load members
@@ -112,7 +138,7 @@ export default function Splits({ showToast }) {
       .eq('is_active', true);
     setAllRecurring(recData || []);
 
-    // One-time unpaid expenses this month with their split rows
+    // One-time unpaid expenses in range with their split rows
     const { data: expData } = await supabase
       .from('expenses')
       .select(`
@@ -369,7 +395,7 @@ export default function Splits({ showToast }) {
                 {member.full_name}
                 <span className="text-xs bg-olive-600/30 text-olive-300 px-2 py-0.5 rounded-full">You</span>
               </div>
-              <div className="text-sm text-neutral-400">Your balance overview this month</div>
+              <div className="text-sm text-neutral-400">Your balance overview for this period</div>
             </div>
             <div className="text-right">
               <div className="text-xs text-neutral-400">{netSelf >= 0 ? 'Net in your favor' : 'Net you owe'}</div>
@@ -415,7 +441,7 @@ export default function Splits({ showToast }) {
             <div className="text-center py-8 text-neutral-400">
               <div className="text-4xl mb-2">🤝</div>
               <div className="text-lg font-medium">All settled up!</div>
-              <div className="text-sm">No outstanding balances for you this month.</div>
+              <div className="text-sm">No outstanding balances for you in this period.</div>
             </div>
           )}
         </div>
@@ -529,7 +555,7 @@ export default function Splits({ showToast }) {
     );
   };
 
-  // ── Monthly Forecast ─────────────────────────────────────────
+  // ── Forecast (for the selected range) ───────────────────────
   const renderForecast = () => {
     const items = [];
 
@@ -562,7 +588,7 @@ export default function Splits({ showToast }) {
       });
     }
 
-    // 2. One-time unpaid expenses this month
+    // 2. One-time unpaid expenses in range
     for (const e of allOneTime) {
       const splits = Array.isArray(e.splits) ? e.splits : [];
       const mySplit = splits.find(s => s.profile_id === user.id);
@@ -594,8 +620,14 @@ export default function Splits({ showToast }) {
     const grandTotal = items.reduce((s, i) => s + i.totalAmount, 0);
     const totalMyShare = items.reduce((s, i) => s + i.yourShare, 0);
 
-    const [yr, mo] = month.split('-').map(Number);
-    const monthLabel = new Date(yr, mo - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    // Label: single month if start === end, otherwise a range
+    const monthToLabel = (m) => {
+      const [yr, mo] = m.split('-').map(Number);
+      return new Date(yr, mo - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    };
+    const rangeLabel = startMonth === endMonth
+      ? monthToLabel(startMonth)
+      : `${monthToLabel(startMonth)} – ${monthToLabel(endMonth)}`;
 
     // Sort: recurring first, then by total amount desc
     items.sort((a, b) => {
@@ -606,8 +638,8 @@ export default function Splits({ showToast }) {
     return (
       <Card className="p-0 overflow-hidden">
         <div className="p-4 border-b border-white/5 bg-white/5">
-          <div className="font-semibold">📅 Monthly Forecast</div>
-          <div className="text-sm text-neutral-400">{monthLabel}</div>
+          <div className="font-semibold">📅 Forecast</div>
+          <div className="text-sm text-neutral-400">{rangeLabel}</div>
         </div>
         <div className="grid grid-cols-2 gap-2 p-4 border-b border-white/5 bg-white/5">
           <div>
@@ -621,7 +653,7 @@ export default function Splits({ showToast }) {
         </div>
         <div className="divide-y divide-white/5">
           {items.length === 0 ? (
-            <div className="p-4 text-center text-neutral-400 text-sm">No forecast data for this month.</div>
+            <div className="p-4 text-center text-neutral-400 text-sm">No forecast data for this period.</div>
           ) : (
             items.map((item, idx) => (
               <div key={idx} className="p-3 hover:bg-white/5 transition-colors">
@@ -662,21 +694,30 @@ export default function Splits({ showToast }) {
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
         <h2 className="text-2xl font-bold">Splits & Settlements</h2>
-        <div className="flex items-center gap-4">
-          <select value={month} onChange={handleChange} className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
-            {(() => {
-              const now = new Date();
-              const opts = [];
-              for (let i = -12; i <= 2; i++) {
-                const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-                const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                opts.push({ val, label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) });
-              }
-              return opts.map(m => <option className="text-black" key={m.val} value={m.val}>{m.label}</option>);
-            })()}
-          </select>
+        <div className="flex items-center gap-2">
+          <div className="flex flex-col">
+            <label className="text-[10px] text-neutral-400 uppercase tracking-wider mb-1">From</label>
+            <input
+              type="month"
+              value={startMonth}
+              onChange={handleStartMonthChange}
+              max={endMonth}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+            />
+          </div>
+          <span className="text-neutral-500 mt-4">–</span>
+          <div className="flex flex-col">
+            <label className="text-[10px] text-neutral-400 uppercase tracking-wider mb-1">To</label>
+            <input
+              type="month"
+              value={endMonth}
+              onChange={handleEndMonthChange}
+              min={startMonth}
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+            />
+          </div>
         </div>
       </div>
 
